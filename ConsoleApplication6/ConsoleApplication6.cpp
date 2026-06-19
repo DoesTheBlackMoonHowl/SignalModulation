@@ -1,4 +1,4 @@
-﻿#include <iostream>
+#include <iostream>
 #include <fstream>
 #include <cstdio>
 #include <random>
@@ -156,7 +156,20 @@ public:
     void visualize() {
         generateData();
         createScript();
-        system("gnuplot plot_script.gnu");
+        ofstream batFile("run_gnuplot.bat");
+        batFile << "@echo off\n";
+        batFile << "if exist gnuplot\\bin\\gnuplot.exe (\n";
+        batFile << "    gnuplot\\bin\\gnuplot.exe plot_script.gnu\n";
+        batFile << ") else if exist gnuplot.exe (\n";
+        batFile << "    gnuplot.exe plot_script.gnu\n";
+        batFile << ") else (\n";
+        batFile << "        echo ОШИБКА: gnuplot не найден!\n";
+        batFile << "    )\n";
+        batFile << ")\n";
+        batFile.close();
+
+        system("run_gnuplot.bat");
+        //system("gnuplot plot_script.gnu");
     }
 
     void setModulatingFreq(double freq) {modulating = freq;}
