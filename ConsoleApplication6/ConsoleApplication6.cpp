@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <random>
 #include <vector>
+#include <complex>
+#include <cmath>
 
 const double PI = 3.14159265358979323846;
 
@@ -21,6 +23,32 @@ private:
     mt19937 rng;
     normal_distribution<double> noiseDist;
 
+    void Fourier(vector<complex<double>>& x) {
+        int N = x.size();
+        if (N <= 1) return;
+
+        vector<complex<double>> even(N / 2), odd(N / 2);
+        for (int i = 0; i < N / 2; i++) {
+            even[i] = x[i * 2];
+            odd[i] = x[i * 2 + 1];
+        }
+
+        Fourier(even);
+        Fourier(odd);
+
+        for (int k = 0; k < N / 2; k++) {
+            complex<double> t = polar(1.0, -2.0 * PI * k / N) * odd[k];
+            x[k] = even[k] + t;
+            x[k + N / 2] = even[k] - t;
+        }
+    }
+
+    int PowerOf2(int n) {
+        int power = 1;
+        while (power < n) power *= 2;
+        return power;
+    }
+
 public:
     SignalGenerator(double modFreq = 1000,
         double carFreq = 1000000,
@@ -31,7 +59,8 @@ public:
         : modulating(modFreq), carrier(carFreq),
         duration(dur), timeStep(step), modulationDepth(modDepth),
         noiseAmplitude(noiseAmp), addNoise(true),
-        rng(random_device{}()), noiseDist(0.0, 1.0) {}
+        rng(random_device{}()), noiseDist(0.0, 1.0) {
+    }
 
     double modulatingSignal(double t) {
         return sin(2 * PI * modulating * t);
@@ -60,6 +89,30 @@ public:
         return signal;
     }
 
+    void computeSpectrum(const vector<double>& signal, vector<double>& frequencies,
+        vector<double>& magnitude) {
+        int N = signal.size();
+        int FourierSize = PowerOf2(N);
+
+        vector<complex<double>> FData(FourierSize, 0.0);
+        for (int i = 0; i < N; i++) {
+            FData[i] = signal[i];
+        }
+
+        Fourier(FData);
+
+        double samplingRate = 1.0 / timeStep;
+        int halfSize = FourierSize / 2;
+
+        frequencies.resize(halfSize);
+        magnitude.resize(halfSize);
+
+        for (int i = 0; i < halfSize; i++) {
+            frequencies[i] = i * samplingRate / FourierSize;
+            magnitude[i] = abs(FData[i]) / N;
+        }
+    }
+
     void generateData() {
         ofstream modFile("modulating.dat");
         ofstream carFile("carrier.dat");
@@ -68,6 +121,8 @@ public:
 
         int N = static_cast<int>(duration / timeStep);
 
+
+        vector<double> amSignalData(N);
         vector<double> noiseData(N);
         for (int i = 0; i < N; i++) {
             noiseData[i] = whiteNoise();
@@ -83,10 +138,20 @@ public:
             double amSignal = amplitudeModulatedSignal(t);
             double noisySignal = amSignal + (addNoise ? noiseData[i] : 0.0);
 
+            amSignalData[i] = noisySignal;
             amFile << tMs << " " << noisySignal << endl;
             noiseFile << tMs << " " << noiseData[i] << endl;
         }
 
+        vector<double> frequencies, magnitude;
+        computeSpectrum(amSignalData, frequencies, magnitude);
+
+        ofstream spectrumFile("spectrum.dat");
+        for (size_t i = 0; i < frequencies.size(); i++) {
+            spectrumFile << frequencies[i] << " " << magnitude[i] << endl;
+        }
+
+        spectrumFile.close();
         modFile.close();
         carFile.close();
         amFile.close();
@@ -96,8 +161,8 @@ public:
     void createScript() {
         ofstream script("plot_script.gnu");
 
-        script << "set terminal wxt size 1400,1000 enhanced font 'Arial,10'\n";
-        script << "set multiplot layout 4,1 title 'Амплитудная модуляция сигнала";
+        script << "set terminal wxt size 1600,1200 enhanced font 'Arial,10'\n";
+        script << "set multiplot layout 5,1 title 'Амплитудная модуляция сигнала";
         if (addNoise) {
             script << " (с шумом)";
         }
@@ -147,6 +212,14 @@ public:
         }
         script << "'\n\n";
 
+        script << "set autoscale y\n";
+        script << "set logscale x\n";
+        script << "set xlabel 'Частота (Гц)' font 'Arial,11'\n";
+        script << "set ylabel 'Амплитуда' font 'Arial,11'\n";
+        script << "set title 'Спектр АМ сигнала' font 'Arial,12'\n";
+        script << "set grid\n";
+        script << "plot 'spectrum.dat' with lines linewidth 2 linecolor rgb 'purple' title 'Спектр'\n\n";
+
         script << "unset multiplot\n";
         script << "pause -1 'Нажмите Enter для выхода'\n";
 
@@ -172,18 +245,19 @@ public:
         //system("gnuplot plot_script.gnu");
     }
 
-    void setModulatingFreq(double freq) {modulating = freq;}
-    void setCarrierFreq(double freq) {carrier = freq;}
-    void setDuration(double dur) {duration = dur;}
-    void setTimeStep(double step) {timeStep = step;}
-    void setModulationDepth(double depth) {modulationDepth = depth;}
-    void setNoiseAmplitude(double amp) {noiseAmplitude = amp;}
-    void setAddNoise(bool flag) {addNoise = flag; }
 
-    double getModulatingFreq() const {return modulating;}
-    double getCarrierFreq() const {return carrier;}
-    double getDuration() const {return duration;}
-    double getTimeStep() const {return timeStep;}
+    void setModulatingFreq(double freq) { modulating = freq; }
+    void setCarrierFreq(double freq) { carrier = freq; }
+    void setDuration(double dur) { duration = dur; }
+    void setTimeStep(double step) { timeStep = step; }
+    void setModulationDepth(double depth) { modulationDepth = depth; }
+    void setNoiseAmplitude(double amp) { noiseAmplitude = amp; }
+    void setAddNoise(bool flag) { addNoise = flag; }
+
+    double getModulatingFreq() const { return modulating; }
+    double getCarrierFreq() const { return carrier; }
+    double getDuration() const { return duration; }
+    double getTimeStep() const { return timeStep; }
     double getModulationDepth() const { return modulationDepth; }
     double getNoiseAmplitude() const { return noiseAmplitude; }
     bool getAddNoise() const { return addNoise; }
@@ -210,7 +284,7 @@ void printMenu() {
 void displayParameters(const SignalGenerator& sg) {
     cout << "\n--- Текущие параметры ---\n";
     cout << " Частота модулирующего сигнала: " << sg.getModulatingFreq() << " Гц\n";
-    cout << " Несущая частота: " << sg.getCarrierFreq()<< " Гц\n";
+    cout << " Несущая частота: " << sg.getCarrierFreq() << " Гц\n";
     cout << " Длительность сигнала: " << sg.getDuration() * 1000.0 << " мс\n";
     cout << " Дискретность по времени: " << sg.getTimeStep() * 1000000.0 << " мкс\n";
     cout << " Глубина модуляции: " << sg.getModulationDepth() * 100.0 << " %\n";
